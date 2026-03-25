@@ -1,8 +1,10 @@
-# Lean4-CodeVerifier
+# Goedel-Code-Prover
+
+[[Paper]](https://arxiv.org/abs/2603.19329) [[Website]](https://goedelcodeprover.github.io/) [[Model]](https://huggingface.co/Goedel-LM/Goedel-Code-Prover-8B)
 
 A two-stage automated Lean 4 theorem proving system: **Decompose** (theorem decomposition) + **Prove** (proof completion).
 
-Given a Lean 4 theorem with a `sorry` placeholder, Lean4-CodeVerifier uses LLMs to first break it into smaller lemmas, then fill in every `sorry` with a machine-checked proof.
+Given a Lean 4 theorem with a `sorry` placeholder, Goedel-Code-Prover uses LLMs to first break it into smaller lemmas, then fill in every `sorry` with a machine-checked proof.
 
 ## How It Works
 
@@ -102,7 +104,7 @@ python main.py benchmark/verina_bench.json -v
 ## Project Structure
 
 ```
-Lean4-CodeVerifier/
+Goedel-Code-Prover/
 |-- main.py                    # Unified pipeline entry point
 |-- config.example.yaml        # Configuration template (copy to config.yaml)
 |-- transform.py               # EVOLVE-BLOCK marker transformation
