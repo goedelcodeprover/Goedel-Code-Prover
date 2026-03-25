@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Logs
+logs/
+
+# Results
+results/
+
+# User config (use config.example.yaml as template)
+config.yaml
+
+# Environment
+.env
+.venv/
+
+# lean-ray-server: large Lean dependencies (installed at runtime)
+lean-ray-server/mathlib4/
+lean-ray-server/repl/
+lean-ray-server/lean-tacs/
+lean-ray-server/.lake/
+lean-ray-server/build/
+lean-ray-server/test/test_set.json

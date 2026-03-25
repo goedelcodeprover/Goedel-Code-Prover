@@ -1,0 +1,441 @@
+/-
+Copyright (c) 2022 Henrik Böving. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Henrik Böving, Simon Hudon
+-/
+
+import Lean.Elab.Command
+import Lean.Meta.Eval
+import Quickcheck.Gen
+import Quickcheck.Arbitrary
+
+
+/-!
+# `SampleableExt` Class
+
+This class permits the creation samples of a given type
+controlling the size of those values using the `Gen` monad.
+
+# `Shrinkable` Class
+
+This class helps minimize examples by creating smaller versions of
+given values.
+
+When testing a proposition like `∀ n : Nat, Prime n → n ≤ 100`,
+`Quickcheck` requires that `Nat` have an instance of `SampleableExt` and for
+`Prime n` to be decidable.  `Quickcheck` will then use the instance of
+`SampleableExt` to generate small examples of Nat and progressively increase
+in size. For each example `n`, `Prime n` is tested. If it is false,
+the example will be rejected (not a test success nor a failure) and
+`Quickcheck` will move on to other examples. If `Prime n` is true,
+`n ≤ 100` will be tested. If it is false, `n` is a counter-example of
+`∀ n : Nat, Prime n → n ≤ 100` and the test fails. If `n ≤ 100` is true,
+the test passes and `Quickcheck` moves on to trying more examples.
+
+## Main definitions
+
+* `SampleableExt` class
+* `Shrinkable` class
+
+### `SampleableExt`
+
+`SampleableExt` can be used in two ways. The first (and most common)
+is to simply generate values of a type directly using the `Gen` monad,
+if this is what you want to do then the way to go is to declare an `Arbitrary`
+instance, and rely on the default `selfContained` instance.
+
+Furthermore it makes it possible to express generators for types that
+do not lend themselves to introspection, such as `Nat → Nat`.
+If we test a quantification over functions the
+counter-examples cannot be shrunken or printed meaningfully.
+For that purpose, `SampleableExt` provides a proxy representation
+`proxy` that can be printed and shrunken as well
+as interpreted (using `interp`) as an object of the right type. If you
+are using it in the first way, this proxy type will simply be the type
+itself and the `interp` function `id`.
+
+### `Shrinkable`
+
+Given an example `x : α`, `Shrinkable α` gives us a way to shrink it
+and suggest simpler examples.
+
+## Shrinking
+
+Shrinking happens when `Quickcheck` finds a counter-example to a
+property.  It is likely that the example will be more complicated than
+necessary so `Quickcheck` proceeds to shrink it as much as
+possible. Although equally valid, a smaller counter-example is easier
+for a user to understand and use.
+
+The `Shrinkable` class, , has a `shrink` function so that we can use
+specialized knowledge while shrinking a value. It is not responsible
+for the whole shrinking process however. It only has to take one step
+in the shrinking process. `Quickcheck` will repeatedly call `shrink`
+until no more steps can be taken. Because `shrink` guarantees that the
+size of the candidates it produces is strictly smaller than the
+argument, we know that `Quickcheck` is guaranteed to terminate.
+
+## Tags
+
+random testing
+
+## References
+
+* https://hackage.haskell.org/package/QuickCheck
+
+-/
+
+namespace Quickcheck
+
+open Random Gen
+
+universe u v
+variable {α β : Type _}
+
+/-- Given an example `x : α`, `Shrinkable α` gives us a way to shrink it
+and suggest simpler examples. -/
+class Shrinkable (α : Type u) where
+  shrink : (x : α) → List α := fun _ => []
+
+/-- `SampleableExt` can be used in two ways. The first (and most common)
+is to simply generate values of a type directly using the `Gen` monad,
+if this is what you want to do then declaring an `Arbitrary` instance is the
+way to go.
+
+Furthermore it makes it possible to express generators for types that
+do not lend themselves to introspection, such as `Nat → Nat`.
+If we test a quantification over functions the
+counter-examples cannot be shrunken or printed meaningfully.
+For that purpose, `SampleableExt` provides a proxy representation
+`proxy` that can be printed and shrunken as well
+as interpreted (using `interp`) as an object of the right type. -/
+class SampleableExt (α : Sort u) where
+  proxy : Type v
+  [proxyRepr : Repr proxy]
+  [shrink : Shrinkable proxy]
+  [sample : Arbitrary proxy]
+  interp : proxy → α
+
+attribute [instance] SampleableExt.proxyRepr
+attribute [instance] SampleableExt.shrink
+
+namespace SampleableExt
+
+/-- Default instance whose purpose is to simply generate values
+of a type directly using the `Arbitrary` instance -/
+@[default_instance]
+instance selfContained [Repr α] [Shrinkable α] [Arbitrary α] : SampleableExt α where
+  proxy := α
+  proxyRepr := inferInstance
+  shrink := inferInstance
+  sample := inferInstance
+  interp := id
+
+/-- This is kept for backwards compatibility -/
+def mkSelfContained [Repr α] [Shrinkable α] (g : Gen α) : SampleableExt α :=
+  let : Arbitrary α := ⟨g⟩
+  inferInstance
+
+/-- First samples a proxy value and interprets it. Especially useful if
+the proxy and target type are the same. -/
+def interpSample (α : Type u) [SampleableExt α] : Gen α :=
+  SampleableExt.interp <$> SampleableExt.sample.arbitrary
+
+end SampleableExt
+
+section Shrinkers
+
+instance [Shrinkable α] [Shrinkable β] : Shrinkable (Sum α β) where
+  shrink s :=
+    match s with
+    | .inl l => Shrinkable.shrink l |>.map .inl
+    | .inr r => Shrinkable.shrink r |>.map .inr
+
+instance Unit.shrinkable : Shrinkable Unit where
+  shrink _ := []
+
+/-- `Nat.shrink' n` creates a list of smaller natural numbers by
+successively dividing `n` by 2 . For example, `Nat.shrink 5 = [2, 1, 0]`. -/
+def Nat.shrink (n : Nat) : List Nat :=
+  if 0 < n then
+    let m := n/2
+    m :: shrink m
+  else
+    []
+
+instance Nat.shrinkable : Shrinkable Nat where
+  shrink := Nat.shrink
+
+instance Fin.shrinkable {n : Nat} : Shrinkable (Fin n.succ) where
+  shrink m := Nat.shrink m |>.map (Fin.ofNat _)
+
+instance BitVec.shrinkable {n : Nat} : Shrinkable (BitVec n) where
+  shrink m := Nat.shrink m.toNat |>.map (BitVec.ofNat n)
+
+instance UInt8.shrinkable : Shrinkable UInt8 where
+  shrink m := Nat.shrink m.toNat |>.map UInt8.ofNat
+
+instance UInt16.shrinkable : Shrinkable UInt16 where
+  shrink m := Nat.shrink m.toNat |>.map UInt16.ofNat
+
+instance UInt32.shrinkable : Shrinkable UInt32 where
+  shrink m := Nat.shrink m.toNat |>.map UInt32.ofNat
+
+instance UInt64.shrinkable : Shrinkable UInt64 where
+  shrink m := Nat.shrink m.toNat |>.map UInt64.ofNat
+
+instance USize.shrinkable : Shrinkable USize where
+  shrink m := Nat.shrink m.toNat |>.map USize.ofNat
+
+/-- `Int.shrinkable` operates like `Nat.shrinkable` but also includes the negative variants. -/
+instance Int.shrinkable : Shrinkable Int where
+  shrink n :=
+    let converter n :=
+      let int := Int.ofNat n
+      [int, -int]
+    Nat.shrink n.natAbs |>.flatMap converter
+
+instance Bool.shrinkable : Shrinkable Bool := {}
+instance Char.shrinkable : Shrinkable Char := {}
+
+instance Option.shrinkable [Shrinkable α] : Shrinkable (Option α) where
+  shrink o :=
+    match o with
+    | some x => Shrinkable.shrink x |>.map .some
+    | none => []
+
+instance Prod.shrinkable [shrA : Shrinkable α] [shrB : Shrinkable β] :
+    Shrinkable (Prod α β) where
+  shrink := fun (fst,snd) =>
+    let shrink1 := shrA.shrink fst |>.map fun x => (x, snd)
+    let shrink2 := shrB.shrink snd |>.map fun x => (fst, x)
+    shrink1 ++ shrink2
+
+instance Sigma.shrinkable [shrA : Shrinkable α] [shrB : Shrinkable β] :
+    Shrinkable ((_ : α) × β) where
+  shrink := fun ⟨fst,snd⟩ =>
+    let shrink1 := shrA.shrink fst |>.map fun x => ⟨x, snd⟩
+    let shrink2 := shrB.shrink snd |>.map fun x => ⟨fst, x⟩
+    shrink1 ++ shrink2
+
+open Shrinkable
+
+/-- Shrink a list of a shrinkable type, either by discarding an element or shrinking an element.
+This optimized version limits the number of candidates to avoid exponential blowup. -/
+instance List.shrinkable [Shrinkable α] : Shrinkable (List α) where
+  shrink := fun L =>
+    -- For long lists, only try removing elements at strategic positions
+    let removalCandidates :=
+      if L.length ≤ 5 then
+        L.mapIdx fun i _ => L.eraseIdx i
+      else
+        -- For longer lists, only try removing front, middle, and back elements
+        (match L.tail? with | some t => [t] | none => []) ++
+        [L.dropLast, L.eraseIdx (L.length / 2)] ++
+        -- Also try halving the list
+        [L.take (L.length / 2), L.drop (L.length / 2)]
+    -- For element shrinking, only shrink the first few elements to avoid O(n²) behavior
+    let shrinkCandidates :=
+      ((L.take (min 3 L.length)).mapIdx fun i a =>
+        (shrink a).map fun a' => L.modify i fun _ => a').flatten
+    removalCandidates ++ shrinkCandidates
+
+instance ULift.shrinkable [Shrinkable α] : Shrinkable (ULift α) where
+  shrink u := (shrink u.down).map ULift.up
+
+instance String.shrinkable : Shrinkable String where
+  shrink s := (shrink s.toList).map String.mk
+
+instance Array.shrinkable [Shrinkable α] : Shrinkable (Array α) where
+  shrink xs :=
+    -- Avoid converting to list and back for large arrays; use direct array operations
+    if xs.size ≤ 10 then
+      (shrink xs.toList).map Array.mk
+    else
+      -- For large arrays, generate fewer candidates directly
+      let halfSize := xs.size / 2
+      let base := [xs.extract 0 halfSize, xs.extract halfSize xs.size]
+      if xs.size > 0 then
+        xs.pop :: base
+      else
+        base
+
+instance Subtype.shrinkable {α : Type u} {β : α → Prop} [Shrinkable α] [∀ x, Decidable (β x)] : Shrinkable {x : α // β x} where
+  shrink x :=
+    let val := x.val
+    let candidates := shrink val
+    let filter x := do
+      if h : β x then
+        some ⟨x, h⟩
+      else
+        none
+    candidates.filterMap filter
+
+end Shrinkers
+
+section Samplers
+
+open SampleableExt
+open Arbitrary
+
+instance arbitraryProxy [SampleableExt α] : Arbitrary (proxy α) := sample
+
+instance Sum.SampleableExt [SampleableExt α] [SampleableExt β] : SampleableExt (Sum α β) where
+  proxy := Sum (proxy α) (proxy β)
+  sample := inferInstance
+  interp s :=
+    match s with
+    | .inl l => .inl (interp l)
+    | .inr r => .inr (interp r)
+
+instance [SampleableExt α] [SampleableExt β] : SampleableExt ((_ : α) × β) where
+  proxy := (_ : proxy α) × proxy β
+  sample := inferInstance
+  interp s := ⟨interp s.fst, interp s.snd⟩
+
+instance Option.sampleableExt [SampleableExt α] : SampleableExt (Option α) where
+  proxy := Option (proxy α)
+  sample := inferInstance
+  interp o := o.map interp
+
+instance Prod.sampleableExt {α : Type u} {β : Type v} [SampleableExt α] [SampleableExt β] :
+    SampleableExt (α × β) where
+  proxy := Prod (proxy α) (proxy β)
+  proxyRepr := inferInstance
+  shrink := inferInstance
+  sample := inferInstance
+  interp := Prod.map interp interp
+
+instance Prop.sampleableExt : SampleableExt Prop where
+  proxy := Bool
+  proxyRepr := inferInstance
+  sample := inferInstance
+  shrink := inferInstance
+  interp := Coe.coe
+
+instance List.sampleableExt [SampleableExt α] : SampleableExt (List α) where
+  proxy := List (proxy α)
+  sample := inferInstance
+  interp := List.map interp
+
+instance ULift.sampleableExt [SampleableExt α] : SampleableExt (ULift α) where
+  proxy := proxy α
+  sample := sample
+  interp a := ⟨interp a⟩
+
+instance Array.sampleableExt [SampleableExt α] : SampleableExt (Array α) where
+  proxy := Array (proxy α)
+  sample := inferInstance
+  interp := Array.map interp
+
+end Samplers
+
+/-- An annotation for values that should never get shrunk. -/
+@[expose] def NoShrink (α : Type u) := α
+
+namespace NoShrink
+
+open SampleableExt
+
+def mk (x : α) : NoShrink α := x
+def get (x : NoShrink α) : α := x
+
+instance inhabited [inst : Inhabited α] : Inhabited (NoShrink α) := inst
+instance repr [inst : Repr α] : Repr (NoShrink α) := inst
+
+instance shrinkable : Shrinkable (NoShrink α) where
+  shrink := fun _ => []
+
+instance arbitrary [arb : Arbitrary α] : Arbitrary (NoShrink α) := arb
+
+instance sampleableExt [SampleableExt α] [Repr α] : SampleableExt (NoShrink α) where
+  proxy := NoShrink (proxy α)
+  interp := interp
+
+end NoShrink
+
+open Lean Meta Elab
+
+/--
+`e` is a type to sample from, this can either be a type that implements `SampleableExt` or `Gen α`
+directly. For this return:
+- the universe level of the `Type u` that the relevant type to sample lives in.
+- the actual type `α` to sample from
+- a `Repr α` instance
+- a `Gen α` generator to run in order to sample
+-/
+private def mkGenerator (e : Expr) : MetaM (Level × Expr × Expr × Expr) := do
+  let exprTyp ← inferType e
+  let .sort u ← whnf (← inferType exprTyp) | throwError m!"{exprTyp} is not a type"
+  let .succ u := u | throwError m!"{exprTyp} is not a type with computational content"
+  match_expr exprTyp with
+  | Gen α =>
+    let reprInst ← synthInstance (mkApp (mkConst ``Repr [u]) α)
+    return ⟨u, α, reprInst, e⟩
+  | _ =>
+    let v ← mkFreshLevelMVar
+    let sampleableExtInst ← synthInstance (mkApp (mkConst ``SampleableExt [u, v]) e)
+    let v ← instantiateLevelMVars v
+    let reprInst := mkApp2 (mkConst ``SampleableExt.proxyRepr [u, v]) e sampleableExtInst
+    let arb := mkApp2 (mkConst ``SampleableExt.sample [u, v]) e sampleableExtInst
+    let gen := mkApp2 (mkConst ``Arbitrary.arbitrary [v]) e arb
+    let typ := mkApp2 (mkConst ``SampleableExt.proxy [u, v]) e sampleableExtInst
+    return ⟨v, typ, reprInst, gen⟩
+
+/--
+`#sample type`, where `type` has an instance of `SampleableExt`, prints ten random
+values of type `type` using an increasing size parameter.
+
+```lean
+#sample Nat
+-- prints
+-- 0
+-- 0
+-- 2
+-- 24
+-- 64
+-- 76
+-- 5
+-- 132
+-- 8
+-- 449
+-- or some other sequence of numbers
+
+#sample List Int
+-- prints
+-- []
+-- [1, 1]
+-- [-7, 9, -6]
+-- [36]
+-- [-500, 105, 260]
+-- [-290]
+-- [17, 156]
+-- [-2364, -7599, 661, -2411, -3576, 5517, -3823, -968]
+-- [-643]
+-- [11892, 16329, -15095, -15461]
+-- or whatever
+```
+-/
+elab "#sample " e:term : command =>
+  Command.runTermElabM fun _ => do
+    let e ← Elab.Term.elabTermAndSynthesize e none
+    let ⟨_, α, repr, gen⟩ ← mkGenerator e
+    let printSamples := mkApp3 (mkConst ``Gen.printSamples []) α repr gen
+    let code ← unsafe evalExpr (IO PUnit) (mkApp (mkConst ``IO) (mkConst ``PUnit [1])) printSamples
+    _ ← code
+
+-- SampleableExt instance for Subtypes with decidable predicates.
+-- This samples from the base type and uses a filter approach.
+-- Note: This is a low-priority instance since it may discard many samples.
+instance (priority := 50) Subtype.sampleableExt {α : Type _} {p : α → Prop}
+    [SampleableExt α] [DecidablePred p] [Inhabited (Subtype p)] : SampleableExt (Subtype p) where
+  proxy := SampleableExt.proxy α
+  proxyRepr := SampleableExt.proxyRepr
+  shrink := SampleableExt.shrink
+  interp x :=
+    let val := SampleableExt.interp x
+    if h : p val then ⟨val, h⟩
+    else default
+  sample := SampleableExt.sample
+
+end Quickcheck

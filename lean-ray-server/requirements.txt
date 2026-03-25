@@ -1,0 +1,12 @@
+# Lean Verifier Server dependencies
+ray[serve]>=2.8.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+loguru>=0.7.0
+tqdm>=4.66.0
+aiohttp>=3.9.0
+requests>=2.31.0
+func-timeout>=4.3.5
+psutil>=5.9.0
+pandas>=2.1.0

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lean_ray_server"
+version = "0.1.0"
+description = "A formal theorem prover for counter example and its associated proof generation"
+authors = [
+    { name="Zenan Li", email="lizn@smail.nju.edu.cn.com" }
+]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "func-timeout",
+    "loguru",
+    "tqdm",
+    "ray[serve]",
+    "pandas",
+    "pydantic",
+    "pydantic_settings",
+    "pytest",
+    "psutil>=7.1.0",
+    "pyarrow>=21.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]

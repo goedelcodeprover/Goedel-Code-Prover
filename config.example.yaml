@@ -1,0 +1,79 @@
+# Lean4-CodeVerifier configuration
+# Two-stage pipeline: decompose (theorem decomposition) -> prove (proof completion)
+#
+# Usage: copy this file to config.yaml and adjust for your environment
+#   cp config.example.yaml config.yaml
+
+# ==================== Pipeline settings ====================
+pipeline:
+  benchmark_file: "benchmark/verina_bench.json"    # Input benchmark file
+  output_dir: "results"                            # Output directory
+  stages: ["decompose", "prove"]                   # Stages to run: ["decompose", "prove"] or a single one
+
+# ==================== Decompose stage ====================
+decompose:
+  # LLM settings (field names match prove.llm)
+  llm:
+    api_base: "http://localhost:8901/v1"            # LLM server URL (OpenAI-compatible API)
+    model: "your-model-name"                       # Model name
+    api_key: "dummy"                               # API key (use "dummy" for local vLLM)
+    temperature: 0.9                               # Sampling temperature
+    max_tokens: 16000                              # Max output tokens
+    reasoning_effort: "medium"                     # Reasoning effort: "low", "medium", "high"
+
+  # Billing (prices in USD per million tokens)
+  input_token_price: 0.05
+  output_token_price: 3.00
+  budget_limit: 100.00
+
+  # Lean verification server
+  lean_server_url: "http://localhost:8900"
+  timeout: 300                                     # Per-verification timeout (seconds)
+
+  # Decomposition strategy
+  pass_k: 10                                       # pass@k: run k times per problem, pick lowest-score result
+  max_lemmas: 32                                   # Filter out decompositions with more than this many lemmas+theorems (0 = no limit)
+  num_iterations: 128                              # Max iterations per problem
+  target_selection_temperature: 0.9                # Target selection softmax temperature
+
+  # Concurrency
+  max_workers: 512                                 # Max concurrent LLM requests
+  lean_max_concurrent: 96                          # Max concurrent Lean server requests
+  max_concurrent_tasks: 512                        # Max concurrent tasks (controls thread count and memory)
+
+# ==================== Prove stage ====================
+prove:
+  # Lean verification server
+  lean_server:
+    url: "http://localhost:8900"
+    timeout: 300                                   # Verification timeout (seconds)
+    timeout_buffer: 60                             # Extra HTTP timeout buffer
+
+  # LLM settings
+  llm:
+    api_base: "http://localhost:8901/v1"            # LLM server URL
+    api_key: "dummy"                               # API key
+    model: "your-model-name"                       # Model name
+    use_azure_ad: false
+    temperature: 0.7
+    max_tokens: 8192
+    timeout: 300
+
+    # Billing (prices in USD per million tokens)
+    input_token_price: 0.05
+    output_token_price: 3.00
+    budget_limit: 100.00
+
+  # Proof strategy (multi-epoch mode)
+  prover:
+    pass_k: 10                                     # Runs per problem
+    num_epochs: 20                                 # Number of epochs
+    fix_attempts_per_epoch: 5                      # Fix attempts per epoch
+    max_total_attempts: 200000                     # Max total attempts
+    max_workers: 512                               # Max concurrent LLM requests
+    lean_max_concurrent: 96                        # Max concurrent Lean server requests
+    max_concurrent_tasks: 512                      # Max concurrent tasks (must be < ulimit -n)
+    enable_per_run_log: false                      # Write per-run log files; disable to save FDs
+
+# Debug mode
+debug: false
