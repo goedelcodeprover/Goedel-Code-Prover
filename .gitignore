@@ -20,7 +20,8 @@ config.yaml
 # lean-ray-server: large Lean dependencies (installed at runtime)
 lean-ray-server/mathlib4/
 lean-ray-server/repl/
-lean-ray-server/lean-tacs/
+lean-ray-server/lean-tacs/.lake/
+lean-ray-server/lean-tacs/.git/
 lean-ray-server/.lake/
 lean-ray-server/build/
 lean-ray-server/test/test_set.json

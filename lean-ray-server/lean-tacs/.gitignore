@@ -1,0 +1,15 @@
+# Lean build artifacts
+build/
+lake-packages/
+.lake/
+
+# Editor files
+*.olean
+*.c
+*.o
+*.so
+*.dylib
+*.dll
+
+# Lean server
+.lean/

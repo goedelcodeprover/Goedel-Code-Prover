@@ -1,0 +1,16 @@
+name = "lean-tacs"
+version = "0.1.0"
+defaultTargets = ["Tacs"]
+
+[[require]]
+name = "mathlib"
+path = "../mathlib4"
+
+[[require]]
+name = "quickcheck"
+path = "../quickcheck"
+
+
+[[lean_lib]]
+name = "Tacs"
+
